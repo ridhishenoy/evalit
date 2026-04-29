@@ -1,0 +1,6 @@
+{
+  "name": "EvalIt",
+  "description": "An AI-powered evaluation platform for scanned handwritten answer sheets, featuring automated digitization, question-wise segmentation, and section-wise marking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
