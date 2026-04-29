@@ -7,20 +7,24 @@ import { aiService } from '../services/ai';
 
 export default function AdminDashboard({ user }: { user: User }) {
   const [exams, setExams] = useState<Exam[]>([]);
+  const [allEvaluators, setAllEvaluators] = useState<User[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [newExamTitle, setNewExamTitle] = useState('');
   const [answerKey, setAnswerKey] = useState<AnswerKeySection[]>([]);
   const [loading, setLoading] = useState(false);
   const [showCreateEval, setShowCreateEval] = useState(false);
+  const [showManageEval, setShowManageEval] = useState(false);
   const [evaluatorsToCreate, setEvaluatorsToCreate] = useState([{ name: '', email: '', password: '' }]);
 
   useEffect(() => {
-    loadExams();
+    loadData();
   }, []);
 
-  const loadExams = async () => {
+  const loadData = async () => {
     const data = await api.getExams();
     setExams(data);
+    const evals = await api.getEvaluators();
+    setAllEvaluators(evals);
   };
 
   const handleAnswerKeyUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -55,7 +59,21 @@ export default function AdminDashboard({ user }: { user: User }) {
       setNewExamTitle('');
       setAnswerKey([]);
       setShowCreate(false);
-      loadExams();
+      loadData();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteExam = async (examId: string) => {
+    if (!window.confirm("Are you sure you want to delete this exam and all its papers?")) return;
+    setLoading(true);
+    try {
+      await api.deleteExam(examId);
+      alert('Exam deleted successfully');
+      loadData();
+    } catch (e: any) {
+      alert(e.message || "Failed to delete exam");
     } finally {
       setLoading(false);
     }
@@ -68,8 +86,35 @@ export default function AdminDashboard({ user }: { user: User }) {
       alert('Evaluators created successfully');
       setShowCreateEval(false);
       setEvaluatorsToCreate([{ name: '', email: '', password: '' }]);
+      loadData();
     } catch (e: any) {
       alert(e.message || 'Failed to create evaluators');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteEvaluator = async (evalId: string) => {
+    if (!window.confirm("Are you sure you want to delete this evaluator?")) return;
+    setLoading(true);
+    try {
+      await api.deleteEvaluator(evalId);
+      loadData();
+    } catch (e: any) {
+      alert(e.message || "Failed to delete evaluator");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateEvaluator = async (evalId: string, updatedData: any) => {
+    setLoading(true);
+    try {
+      await api.updateEvaluator(evalId, updatedData);
+      alert("Evaluator updated");
+      loadData();
+    } catch (e: any) {
+      alert(e.message || "Failed to update evaluator");
     } finally {
       setLoading(false);
     }
@@ -103,6 +148,8 @@ export default function AdminDashboard({ user }: { user: User }) {
       );
       await api.uploadPapers(examId, papers);
       alert('Papers uploaded successfully');
+    } catch (e: any) {
+      alert(e.message || 'Failed to upload papers');
     } finally {
       setLoading(false);
     }
@@ -113,6 +160,8 @@ export default function AdminDashboard({ user }: { user: User }) {
     try {
       await api.distributePapers(examId);
       alert('Papers distributed equally among evaluators');
+    } catch (e: any) {
+      alert(e.message || 'Failed to distribute papers');
     } finally {
       setLoading(false);
     }
@@ -127,19 +176,69 @@ export default function AdminDashboard({ user }: { user: User }) {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={() => { setShowCreateEval(!showCreateEval); setShowCreate(false); }}
+            onClick={() => { setShowManageEval(!showManageEval); setShowCreateEval(false); setShowCreate(false); }}
+            className="flex items-center gap-2 px-4 py-2 border border-zinc-900 text-zinc-900 text-sm font-medium hover:bg-zinc-50 transition-colors"
+          >
+            {showManageEval ? 'Close' : <><Users className="w-4 h-4" /> Manage Evaluators</>}
+          </button>
+          <button
+            onClick={() => { setShowCreateEval(!showCreateEval); setShowManageEval(false); setShowCreate(false); }}
             className="flex items-center gap-2 px-4 py-2 border border-zinc-900 text-zinc-900 text-sm font-medium hover:bg-zinc-50 transition-colors"
           >
             {showCreateEval ? 'Discard' : <><UserPlus className="w-4 h-4" /> Create Evaluators</>}
           </button>
           <button
-            onClick={() => { setShowCreate(!showCreate); setShowCreateEval(false); }}
+            onClick={() => { setShowCreate(!showCreate); setShowCreateEval(false); setShowManageEval(false); }}
             className="flex items-center gap-2 px-4 py-2 bg-zinc-900 text-white text-sm font-medium hover:bg-zinc-800 transition-colors"
           >
             {showCreate ? 'Discard' : <><Plus className="w-4 h-4" /> Create New Exam</>}
           </button>
         </div>
       </div>
+
+      {showManageEval && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white border border-zinc-200 p-8 shadow-sm"
+        >
+          <h3 className="text-lg font-medium mb-6">Manage Existing Evaluators</h3>
+          <div className="space-y-4">
+            {allEvaluators.length === 0 ? (
+              <p className="text-sm text-zinc-500">No evaluators exist.</p>
+            ) : (
+              allEvaluators.map((evaluator) => (
+                <div key={evaluator.id} className="flex gap-4 items-center p-4 bg-zinc-50 border border-zinc-100">
+                  <input
+                    type="text"
+                    defaultValue={evaluator.name}
+                    onBlur={(e) => handleUpdateEvaluator(evaluator.id, { ...evaluator, name: e.target.value })}
+                    className="flex-1 p-2 text-sm border border-zinc-200"
+                  />
+                  <input
+                    type="email"
+                    defaultValue={evaluator.email}
+                    onBlur={(e) => handleUpdateEvaluator(evaluator.id, { ...evaluator, email: e.target.value })}
+                    className="flex-1 p-2 text-sm border border-zinc-200"
+                  />
+                  <input
+                    type="password"
+                    placeholder="New Password (optional)"
+                    onBlur={(e) => e.target.value && handleUpdateEvaluator(evaluator.id, { ...evaluator, password: e.target.value })}
+                    className="flex-1 p-2 text-sm border border-zinc-200"
+                  />
+                  <button 
+                    onClick={() => handleDeleteEvaluator(evaluator.id)}
+                    className="p-2 text-red-500 hover:bg-red-50"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </motion.div>
+      )}
 
       {showCreateEval && (
         <motion.div
@@ -275,7 +374,12 @@ export default function AdminDashboard({ user }: { user: User }) {
             <div>
               <div className="flex justify-between items-start mb-4">
                 <FileText className="w-8 h-8 text-zinc-200" />
-                <span className="text-[10px] font-mono text-zinc-400">{new Date(exam.created_at).toLocaleDateString()}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-mono text-zinc-400">{new Date(exam.created_at).toLocaleDateString()}</span>
+                  <button onClick={() => handleDeleteExam(exam.id)} className="text-red-500 hover:text-red-700 ml-2">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
               <h3 className="text-xl font-medium mb-1">{exam.title}</h3>
               <p className="text-xs text-zinc-500 mb-6 uppercase tracking-widest">

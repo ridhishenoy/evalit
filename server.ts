@@ -71,7 +71,7 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json({ limit: '50mb' }));
+  app.use(express.json({ limit: '200mb' }));
 
   // API Routes
 
@@ -113,6 +113,34 @@ async function startServer() {
     }
   });
 
+  // Update evaluator
+  app.put("/api/evaluators/:id", (req, res) => {
+    const { id } = req.params;
+    const { name, email, password } = req.body;
+    try {
+      db.prepare("UPDATE users SET name = ?, email = ?, password = ? WHERE id = ?").run(name, email, password, id);
+      res.json({ success: true });
+    } catch (error: any) {
+      if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+        res.status(400).json({ error: "Email already exists." });
+      } else {
+        res.status(500).json({ error: "Failed to update evaluator" });
+      }
+    }
+  });
+
+  // Delete evaluator
+  app.delete("/api/evaluators/:id", (req, res) => {
+    try {
+      const { id } = req.params;
+      db.prepare("UPDATE papers SET assigned_to = NULL WHERE assigned_to = ?").run(id);
+      db.prepare("DELETE FROM users WHERE id = ?").run(id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to delete evaluator" });
+    }
+  });
+
   // Get all exams
   app.get("/api/exams", (req, res) => {
     const exams = db.prepare("SELECT * FROM exams ORDER BY created_at DESC").all();
@@ -126,49 +154,73 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  // Delete an exam
+  app.delete("/api/exams/:id", (req, res) => {
+    try {
+      const { id } = req.params;
+      db.prepare("DELETE FROM papers WHERE exam_id = ?").run(id);
+      db.prepare("DELETE FROM exams WHERE id = ?").run(id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to delete exam" });
+    }
+  });
+
   // Upload answer sheets (bulk)
   app.post("/api/papers/bulk", (req, res) => {
-    const { exam_id, papers } = req.body;
-    const insert = db.prepare("INSERT INTO papers (id, exam_id, student_name, pdf_base64) VALUES (?, ?, ?, ?)");
-    const transaction = db.transaction((papersList) => {
-      for (const p of papersList) {
-        insert.run(p.id, exam_id, p.student_name, p.pdf_base64);
-      }
-    });
-    transaction(papers);
-    res.json({ success: true });
+    try {
+      const { exam_id, papers } = req.body;
+      if (!papers || papers.length === 0) return res.status(400).json({ error: "No papers provided" });
+      
+      const insert = db.prepare("INSERT INTO papers (id, exam_id, student_name, pdf_base64) VALUES (?, ?, ?, ?)");
+      const transaction = db.transaction((papersList) => {
+        for (const p of papersList) {
+          insert.run(p.id, exam_id, p.student_name, p.pdf_base64);
+        }
+      });
+      transaction(papers);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Bulk upload error:", error);
+      res.status(500).json({ error: "Failed to upload papers." });
+    }
   });
 
   // Distribute papers equally
   app.post("/api/papers/distribute", (req, res) => {
-    const { exam_id } = req.body;
-    const evaluators = db.prepare("SELECT id FROM users WHERE role = 'evaluator'").all() as { id: string }[];
-    const papers = db.prepare("SELECT id FROM papers WHERE exam_id = ? AND assigned_to IS NULL").all(exam_id) as { id: string }[];
+    try {
+      const { exam_id } = req.body;
+      const evaluators = db.prepare("SELECT id FROM users WHERE role = 'evaluator'").all() as { id: string }[];
+      const papers = db.prepare("SELECT id FROM papers WHERE exam_id = ? AND assigned_to IS NULL").all(exam_id) as { id: string }[];
 
-    if (evaluators.length === 0) return res.status(400).json({ error: "No evaluators available" });
-    if (papers.length === 0) return res.status(400).json({ error: "No unassigned papers available" });
+      if (evaluators.length === 0) return res.status(400).json({ error: "No evaluators available. Please create evaluators first." });
+      if (papers.length === 0) return res.status(400).json({ error: "No unassigned papers available for this exam." });
 
-    const N = papers.length;
-    const M = evaluators.length;
-    const papersPerEvaluator = Math.floor(N / M);
-    const remaining = N % M;
+      const N = papers.length;
+      const M = evaluators.length;
+      const papersPerEvaluator = Math.floor(N / M);
+      const remaining = N % M;
 
-    const transaction = db.transaction(() => {
-      let paperIndex = 0;
-      for (let i = 0; i < M; i++) {
-        const evalId = evaluators[i].id;
-        const count = papersPerEvaluator + (i < remaining ? 1 : 0);
+      const transaction = db.transaction(() => {
+        let paperIndex = 0;
+        for (let i = 0; i < M; i++) {
+          const evalId = evaluators[i].id;
+          const count = papersPerEvaluator + (i < remaining ? 1 : 0);
 
-        for (let j = 0; j < count; j++) {
-          if (paperIndex < N) {
-            db.prepare("UPDATE papers SET assigned_to = ? WHERE id = ?").run(evalId, papers[paperIndex].id);
-            paperIndex++;
+          for (let j = 0; j < count; j++) {
+            if (paperIndex < N) {
+              db.prepare("UPDATE papers SET assigned_to = ? WHERE id = ?").run(evalId, papers[paperIndex].id);
+              paperIndex++;
+            }
           }
         }
-      }
-    });
-    transaction();
-    res.json({ success: true });
+      });
+      transaction();
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Distribute error:", error);
+      res.status(500).json({ error: "Failed to distribute papers." });
+    }
   });
 
   // Get papers assigned to an evaluator
