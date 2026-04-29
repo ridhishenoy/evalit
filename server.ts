@@ -94,11 +94,25 @@ async function startServer() {
     if (evaluators.length === 0) return res.status(400).json({ error: "No evaluators available" });
 
     const transaction = db.transaction(() => {
-      papers.forEach((p, index) => {
-        const evalId = evaluators[index % evaluators.length].id;
-        db.prepare("UPDATE papers SET assigned_to = ? WHERE id = ?").run(evalId, p.id);
+      // Get current assignment counts for each evaluator for this exam
+      const counts = evaluators.map(e => ({
+        id: e.id,
+        count: (db.prepare("SELECT COUNT(*) as count FROM papers WHERE exam_id = ? AND assigned_to = ?")
+          .get(exam_id, e.id) as { count: number }).count
+      }));
+
+      papers.forEach((p) => {
+        // Sort to find evaluator with least papers
+        counts.sort((a, b) => a.count - b.count);
+        const target = counts[0];
+        
+        db.prepare("UPDATE papers SET assigned_to = ? WHERE id = ?").run(target.id, p.id);
+        
+        // Update in-memory count for next iteration
+        target.count++;
       });
     });
+    
     transaction();
     res.json({ success: true });
   });
