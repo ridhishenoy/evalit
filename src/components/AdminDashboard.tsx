@@ -12,6 +12,7 @@ export default function AdminDashboard({ user }: { user: User }) {
   const [newExamTitle, setNewExamTitle] = useState('');
   const [answerKey, setAnswerKey] = useState<AnswerKeySection[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMsg, setLoadingMsg] = useState('');
   const [showCreateEval, setShowCreateEval] = useState(false);
   const [showManageEval, setShowManageEval] = useState(false);
   const [evaluatorsToCreate, setEvaluatorsToCreate] = useState([{ name: '', email: '', password: '' }]);
@@ -158,12 +159,39 @@ export default function AdminDashboard({ user }: { user: User }) {
   const handleDistribute = async (examId: string) => {
     setLoading(true);
     try {
+      const exam = exams.find(e => e.id === examId);
+      if (!exam) return;
+      const answerKey = JSON.parse(exam.answer_key_json || '[]');
+
+      const unassignedPapers = await api.getUnassignedPapers(examId);
+      
+      if (unassignedPapers.length > 0) {
+        for (let i = 0; i < unassignedPapers.length; i++) {
+          const paper = unassignedPapers[i];
+          setLoadingMsg(`Digitizing paper ${i + 1} of ${unassignedPapers.length} via AI... (This takes ~15s per paper)`);
+          
+          try {
+            const result = await aiService.processAnswerSheet(paper.pdf_base64, answerKey);
+            await api.updatePaperEvaluation(paper.id, {
+              digitized_text_json: JSON.stringify(result),
+              marks_json: '{}',
+              status: 'pending'
+            });
+          } catch (aiErr) {
+            console.error("AI Error for paper", paper.id, aiErr);
+            // We continue processing others even if one fails
+          }
+        }
+      }
+
+      setLoadingMsg("Distributing to evaluators...");
       await api.distributePapers(examId);
       alert('Papers distributed equally among evaluators');
     } catch (e: any) {
       alert(e.message || 'Failed to distribute papers');
     } finally {
       setLoading(false);
+      setLoadingMsg('');
     }
   };
 
@@ -173,6 +201,7 @@ export default function AdminDashboard({ user }: { user: User }) {
         <div>
           <h2 className="text-2xl font-serif italic">Administrator Overview</h2>
           <p className="text-zinc-500 text-sm">Manage exams, answer keys, and distribution</p>
+          {loadingMsg && <p className="text-orange-600 font-bold text-sm mt-2 animate-pulse">{loadingMsg}</p>}
         </div>
         <div className="flex gap-2">
           <button

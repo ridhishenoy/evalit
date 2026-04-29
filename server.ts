@@ -186,6 +186,17 @@ async function startServer() {
     }
   });
 
+  // Get unassigned papers for an exam
+  app.get("/api/exams/:examId/unassigned-papers", (req, res) => {
+    try {
+      const { examId } = req.params;
+      const papers = db.prepare("SELECT * FROM papers WHERE exam_id = ? AND assigned_to IS NULL").all(examId);
+      res.json(papers);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to fetch unassigned papers" });
+    }
+  });
+
   // Distribute papers equally
   app.post("/api/papers/distribute", (req, res) => {
     try {
@@ -238,9 +249,9 @@ async function startServer() {
   // Update paper evaluation
   app.post("/api/papers/:paperId/evaluate", (req, res) => {
     const { paperId } = req.params;
-    const { marks_json, sterilized_text_json, status } = req.body;
+    const { marks_json, digitized_text_json, status } = req.body;
     db.prepare("UPDATE papers SET marks_json = ?, digitized_text_json = ?, status = ? WHERE id = ?")
-      .run(marks_json, sterilized_text_json, status, paperId);
+      .run(marks_json, digitized_text_json, status, paperId);
     res.json({ success: true });
   });
 

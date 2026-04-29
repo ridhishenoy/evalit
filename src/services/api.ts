@@ -68,6 +68,10 @@ export const api = {
     });
     return res.json();
   },
+  getUnassignedPapers: async (examId: string): Promise<any[]> => {
+    const res = await fetch(`/api/exams/${examId}/unassigned-papers`);
+    return res.json();
+  },
   distributePapers: async (examId: string) => {
     const res = await fetch("/api/papers/distribute", {
       method: "POST",
